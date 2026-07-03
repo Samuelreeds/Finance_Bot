@@ -203,13 +203,13 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         image_label = "Reference Image" if finance_type == 'income' else "Receipt Image"
         
         preview = (
-            "========================================\n"
+            "==============================\n"
             f"{title.center(40)}\n"
-            "========================================\n"
+            "==============================\n"
             f"Amount         : ${amount:.2f}\n"
             f"Description    : {parsed_data['description']}\n"
             f"{image_label}: {has_image}\n"
-            "========================================"
+            "=============================="
         )
         
         keyboard = [[InlineKeyboardButton("✅ Confirm", callback_data="confirm"), InlineKeyboardButton("❌ Cancel", callback_data="cancel")]]

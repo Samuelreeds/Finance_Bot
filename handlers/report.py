@@ -35,20 +35,20 @@ def build_report_message(summary, orders, period_name):
     
     # We use bold HTML tags (<b>) instead of <pre> so text renders at full size
     return (
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━\n"
         f"<b>📊 REPORT ({period_name})</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
         f"<b>Orders:</b> {summary.get('orders_count', 0)}\n"
         f"<b>Product Sales:</b> ${gross_sales:.2f}\n"
-        "────────────────────────────\n"
+        "━━━━━━━━━━━━━━━━━━\n"
         f"<b>Delivery Income:</b> ${delivery_income:.2f}\n"
         f"<b>Other Income:</b> ${manual_income:.2f}\n"
-        "────────────────────────────\n"
+        "━━━━━━━━━━━━━━━━━━\n"
         f"<b>TOTAL INCOME:</b> ${total_income:.2f}\n"
         f"<b>TOTAL EXPENSES:</b> ${total_expenses:.2f}\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━\n"
         f"<b>NET PROFIT:</b> ${profit:.2f}\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        "━━━━━━━━━━━━━━━━━━"
     )
 
 async def send_report_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,13 +90,13 @@ async def handle_report_callback(update: Update, context: ContextTypes.DEFAULT_T
         period_name = "This Month"
     elif data == "report_custom":
         await query.edit_message_text(
-            "========================================\n"
+            "==============================\n"
             "Please copy the template below.\n"
             "Fill in the dates (YYYY-MM-DD).\n"
             "Then send it back.\n\n"
             "Start Date :\n"
             "End Date :\n"
-            "========================================"
+            "=============================="
         )
         return
 
