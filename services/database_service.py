@@ -1,160 +1,209 @@
+import os
+import uuid
 import pymysql
-from urllib.parse import urlparse
-from config import DATABASE_URL
+import datetime
+from pymysql.cursors import DictCursor
+from dotenv import load_dotenv
 from utils.logger import logger
+from typing import Tuple, List, Dict, Any, Optional
 
-def get_connection():
-    clean_url = DATABASE_URL.replace("mysql+pymysql://", "mysql://")
-    url = urlparse(clean_url)
-    
+load_dotenv()
+
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", 3306))
+DB_USER = os.getenv("DB_USER", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_NAME = os.getenv("DB_NAME", "nemdb")
+
+def get_connection() -> pymysql.Connection:
+    """Establishes and returns a new database connection."""
     return pymysql.connect(
-        host=url.hostname,
-        user=url.username,
-        password=url.password or "",
-        database=url.path[1:],
-        port=url.port or 3306,
-        cursorclass=pymysql.cursors.DictCursor
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+        cursorclass=DictCursor,
+        autocommit=False
     )
 
-def init_db():
-    logger.info("Verifying MySQL database and schemas...")
+def init_db() -> None:
+    """Initializes database tables if they do not exist."""
+    logger.info("Initializing database schema...")
+    conn = get_connection()
+    cursor = conn.cursor()
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        # [Keep existing products, orders, expenses, income tables here]
-        
-        # New AI Poster Tables
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS poster_prompts (
+            CREATE TABLE IF NOT EXISTS products (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                prompt TEXT NOT NULL,
-                active BOOLEAN DEFAULT 1,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                product_name VARCHAR(255) NOT NULL,
+                unit_price DECIMAL(10, 2) NOT NULL,
+                delivery_fee DECIMAL(10, 2) NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE
             )
         ''')
-        
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS poster_history (
+            CREATE TABLE IF NOT EXISTS orders (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                telegram_id VARCHAR(255) NOT NULL,
-                prompt_id INT NOT NULL,
-                telegram_image_file_id VARCHAR(255) NOT NULL,
-                generated_image_url TEXT,
-                tokens_used INT NOT NULL,
-                status VARCHAR(50) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                order_number VARCHAR(50) UNIQUE,
+                customer_name VARCHAR(255) NOT NULL,
+                phone VARCHAR(50) NOT NULL,
+                address TEXT NOT NULL,
+                product_id INT NOT NULL,
+                quantity INT NOT NULL,
+                unit_price DECIMAL(10, 2) NOT NULL,
+                delivery_fee DECIMAL(10, 2) NOT NULL,
+                total_price DECIMAL(10, 2) NOT NULL,
+                delivery_date VARCHAR(100) NOT NULL,
+                created_by VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id)
             )
         ''')
-        
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_tokens (
-                telegram_id VARCHAR(255) PRIMARY KEY,
-                balance INT DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                amount DECIMAL(10, 2) NOT NULL,
+                description TEXT NOT NULL,
+                telegram_file_id VARCHAR(255),
+                created_by VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS income (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                amount DECIMAL(10, 2) NOT NULL,
+                description TEXT NOT NULL,
+                telegram_file_id VARCHAR(255),
+                created_by VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        logger.info("Database initialization complete.")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Failed to initialize database: {e}", exc_info=True)
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS settings (
-                setting_key VARCHAR(50) PRIMARY KEY,
-                setting_value VARCHAR(255) NOT NULL
-            )
-        ''')
+def save_order(customer_name: str, phone: str, address: str, product_id: int, quantity: int, unit_price: float, delivery_fee: float, total_price: float, delivery_date: str, created_by: str) -> str:
+    """Saves a new order and returns the generated order number safely."""
+    logger.info("Saving new order to database...")
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Generate a temporary unique placeholder to satisfy MySQL/MariaDB Strict Mode (NOT NULL constraint)
+        temp_order_num = f"TEMP-{uuid.uuid4().hex[:8]}"
         
-        # Insert defaults if missing
-        cursor.execute("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES ('poster_price', '10')")
-        cursor.execute("INSERT IGNORE INTO poster_prompts (name, prompt) VALUES ('Classic Restaurant', 'A premium restaurant advertising poster with cinematic lighting, elegant typography, luxury food photography...')")
+        cursor.execute('''
+            INSERT INTO orders 
+            (order_number, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, total_price, delivery_date, created_by) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (temp_order_num, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, total_price, delivery_date, created_by))
+        
+        inserted_id = cursor.lastrowid
+        order_number = f"#{inserted_id:04d}"
+        
+        # Update the record with the clean, auto-incremented order number
+        cursor.execute('UPDATE orders SET order_number = %s WHERE id = %s', (order_number, inserted_id))
         
         conn.commit()
-        conn.close()
-        logger.info("Database schemas verified.")
+        logger.info(f"Order {order_number} saved successfully.")
+        return order_number
     except Exception as e:
-        logger.error(f"Database error: {e}")
+        conn.rollback()
+        logger.error(f"Error saving order: {e}", exc_info=True)
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
-# [Keep existing save_order, save_expense, save_income methods here]
-
-def save_order(customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, total_price, delivery_date, created_by):
+def save_expense(amount: float, description: str, telegram_file_id: Optional[str], created_by: str) -> None:
+    """Saves a new expense record."""
+    logger.info("Saving new expense to database...")
     conn = get_connection()
     cursor = conn.cursor()
-    
-    cursor.execute("SELECT COUNT(id) as count FROM orders")
-    result = cursor.fetchone()
-    count = (result['count'] + 1) if result and result['count'] else 1
-    order_number = f"#{count:04d}"
-    
-    cursor.execute('''
-        INSERT INTO orders (order_number, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, total_price, delivery_date, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ''', (order_number, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, total_price, delivery_date, created_by))
-    
-    conn.commit()
-    conn.close()
-    return order_number
+    try:
+        cursor.execute('''
+            INSERT INTO expenses (amount, description, telegram_file_id, created_by) 
+            VALUES (%s, %s, %s, %s)
+        ''', (amount, description, telegram_file_id, created_by))
+        conn.commit()
+        logger.info("Expense saved successfully.")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error saving expense: {e}", exc_info=True)
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
-def save_expense(amount, description, telegram_file_id, created_by):
+def save_income(amount: float, description: str, telegram_file_id: Optional[str], created_by: str) -> None:
+    """Saves a new manual income record."""
+    logger.info("Saving new income to database...")
     conn = get_connection()
     cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO expenses (amount, description, telegram_file_id, created_by)
-        VALUES (%s, %s, %s, %s)
-    ''', (amount, description, telegram_file_id, created_by))
-    
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute('''
+            INSERT INTO income (amount, description, telegram_file_id, created_by) 
+            VALUES (%s, %s, %s, %s)
+        ''', (amount, description, telegram_file_id, created_by))
+        conn.commit()
+        logger.info("Income saved successfully.")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error saving income: {e}", exc_info=True)
+        raise
+    finally:
+        cursor.close()
+        conn.close()
 
-def save_income(amount, description, telegram_file_id, created_by):
+def get_report_data(start_date: datetime.datetime, end_date: datetime.datetime) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Fetches raw data and calculates exact summary metrics for the reporting engine."""
+    logger.info(f"Fetching report data from {start_date} to {end_date}...")
     conn = get_connection()
     cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO income (amount, description, telegram_file_id, created_by)
-        VALUES (%s, %s, %s, %s)
-    ''', (amount, description, telegram_file_id, created_by))
-    
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute('''
+            SELECT o.*, p.product_name 
+            FROM orders o 
+            LEFT JOIN products p ON o.product_id = p.id 
+            WHERE o.created_at >= %s AND o.created_at <= %s
+        ''', (start_date, end_date))
+        orders = cursor.fetchall()
 
-# ... (Keep get_today_order_income and get_report_data exactly as they were)
-def get_today_order_income():
-    """Gets total count and revenue from today's orders (used for the /income command)."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT COUNT(id) as count, COALESCE(SUM(total_price), 0) as total 
-        FROM orders 
-        WHERE DATE(created_at) = CURDATE()
-    ''')
-    result = cursor.fetchone()
-    conn.close()
-    
-    return result['count'], float(result['total'])
+        cursor.execute('SELECT * FROM expenses WHERE created_at >= %s AND created_at <= %s', (start_date, end_date))
+        expenses = cursor.fetchall()
 
-def get_report_data(start_date, end_date):
-    """Calculates total orders, income, and expenses for a specific date range."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # 1. Calculate Income (from automated Orders)
-    cursor.execute('''
-        SELECT COUNT(id) as count, COALESCE(SUM(total_price), 0) as total 
-        FROM orders 
-        WHERE DATE(created_at) >= %s AND DATE(created_at) <= %s
-    ''', (start_date, end_date))
-    order_data = cursor.fetchone()
-    order_count = order_data['count']
-    income_total = float(order_data['total'])
-    
-    # 2. Calculate Expenses
-    cursor.execute('''
-        SELECT COALESCE(SUM(amount), 0) as total 
-        FROM expenses 
-        WHERE DATE(created_at) >= %s AND DATE(created_at) <= %s
-    ''', (start_date, end_date))
-    expense_total = float(cursor.fetchone()['total'])
-    
-    conn.close()
-    return order_count, income_total, expense_total
+        cursor.execute('SELECT * FROM income WHERE created_at >= %s AND created_at <= %s', (start_date, end_date))
+        income = cursor.fetchall()
+        
+        orders_count = len(orders)
+        sales = sum(float(o.get('total_price', 0)) for o in orders) if orders else 0.0
+        total_expenses = sum(float(e.get('amount', 0)) for e in expenses) if expenses else 0.0
+        total_income = sum(float(i.get('amount', 0)) for i in income) if income else 0.0
+        profit = total_income - total_expenses
+        
+        summary = {
+            'orders_count': orders_count,
+            'sales': sales,
+            'expenses': total_expenses,
+            'income': total_income,
+            'profit': profit,
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d')
+        }
+        
+        logger.info("Report data fetched successfully.")
+        return summary, orders, expenses, income
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error fetching report data: {e}", exc_info=True)
+        raise
+    finally:
+        cursor.close()
+        conn.close()

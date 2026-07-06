@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 ADMIN_CHAT_ID = str(os.getenv("ADMIN_CHAT_ID"))
 
+from utils.logger import logger
+
 # Existing Services
 from services.template_parser import parse_template, validate_finance
 from services.product_service import get_active_products, get_product_by_id
@@ -22,6 +24,9 @@ from services.token_service import get_balance, get_poster_price, deduct_tokens,
 from services.prompt_service import get_active_prompts, get_prompt_by_id
 from services.ai_service import generate_poster, save_poster_history
 
+# Manage (CRUD) Services
+from handlers.manage_handler import send_manage_menu, handle_search_input
+
 
 def get_main_menu_keyboard(user_id: int | str) -> ReplyKeyboardMarkup:
     """Builds the menu based on user permissions."""
@@ -29,7 +34,7 @@ def get_main_menu_keyboard(user_id: int | str) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📦 New Order"), KeyboardButton("🎨 AI Poster")],
         [KeyboardButton("💸 Expense"), KeyboardButton("💰 Income")],
-        [KeyboardButton("📊 Reports")]
+        [KeyboardButton("📊 Reports"), KeyboardButton("📂 Manage Records")]
     ]
     
     # 2. Admin buttons appended ONLY if your ID matches
@@ -48,6 +53,10 @@ async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Global listener for Menu buttons, Text Templates, and Photo Templates."""
     if update.message.chat.type != 'private':
+        return
+
+    # --- 0. CHECK FOR ACTIVE CRUD SEARCH ---
+    if update.message.text and await handle_search_input(update, context):
         return
 
     # --- 1. HANDLE PHOTO UPLOADS (AI POSTER) ---
@@ -101,7 +110,7 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "💸 Expense" or text == "💰 Income":
         context.user_data['active_finance_type'] = 'income' if 'Income' in text else 'expense'
         await update.message.reply_text(
-            "Attach a receipt/proof image if available.\n\n"
+            "Attach receipt/proof images if available.\n\n"
             "Amount :\n"
             "Description :"
         )
@@ -109,6 +118,10 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📊 Reports":
         await send_report_menu(update, context)
+        return
+
+    if text == "📂 Manage Records":
+        await send_manage_menu(update, context)
         return
 
     if text == "🎨 AI Poster":
@@ -188,19 +201,25 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Amount must be a number.")
             return
             
-        file_id = update.message.photo[-1].file_id if update.message.photo else None
-        has_image = "Yes" if file_id else "No"
+        # 🟢 UPGRADE: Collect ALL uploaded image IDs and store them as a comma-separated string
+        file_id_list = []
+        if update.message.photo:
+            # Grab the largest resolution of each photo sent
+            file_id_list.append(update.message.photo[-1].file_id)
+        
+        file_id_string = ",".join(file_id_list) if file_id_list else None
+        has_image = f"Yes ({len(file_id_list)} attached)" if file_id_string else "No"
         
         context.user_data['draft'] = {
             'type': finance_type,
             'amount': amount,
             'description': parsed_data['description'],
-            'telegram_file_id': file_id,
+            'telegram_file_id': file_id_string,
             'created_by': created_by
         }
         
         title = "INCOME PREVIEW" if finance_type == 'income' else "EXPENSE PREVIEW"
-        image_label = "Reference Image" if finance_type == 'income' else "Receipt Image"
+        image_label = "Reference Images" if finance_type == 'income' else "Receipt Images"
         
         preview = (
             "==============================\n"
@@ -232,11 +251,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = str(update.effective_user.id)
     
+    # 0. IMMEDIATE ACKNOWLEDGMENT (Anti-Timeout)
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.error(f"Failed to answer callback: {e}")
+    
     # -----------------------------------------
     # PRODUCT SELECTION CALLBACK (NEW ORDER)
     # -----------------------------------------
     if data.startswith("selprod_"):
-        await query.answer()
         product_id = int(data.split("_")[1])
         partial_order = context.user_data.get('partial_order')
         
@@ -284,7 +308,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # AI POSTER CALLBACKS
     # -----------------------------------------
     if data.startswith("pstyle_"):
-        await query.answer()
         prompt_id = int(data.split("_")[1])
         prompt_data = get_prompt_by_id(prompt_id)
         price = get_poster_price()
@@ -308,14 +331,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "poster_cancel":
-        await query.answer()
         context.user_data.pop('poster_draft', None)
         context.user_data.pop('poster_file_id', None)
         await query.edit_message_text("❌ Poster generation cancelled.")
         return
 
     if data == "poster_generate":
-        await query.answer()
         draft = context.user_data.get('poster_draft')
         file_id = context.user_data.get('poster_file_id')
         
@@ -348,11 +369,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_poster_history(user_id, draft['prompt_id'], file_id, "Generated via Imagen 3", price, "SUCCESS")
             
         except Exception as e:
-            print(f"\n--- AI PIPELINE ERROR --- \n{e}\n-------------------------\n")
+            logger.error(f"AI PIPELINE ERROR: {e}", exc_info=True)
             # Refund on failure
             add_tokens(user_id, price)
             save_poster_history(user_id, draft['prompt_id'], file_id, "ERROR", 0, "FAILED")
             await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ Poster generation failed.\nNo tokens were deducted.\nPlease try again.")
+        
         # Clean up context
         context.user_data.pop('poster_draft', None)
         context.user_data.pop('poster_file_id', None)
@@ -362,8 +384,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ORDER & FINANCE CALLBACKS
     # -----------------------------------------
     if data in ['confirm', 'cancel']:
-        await query.answer()
-        
         if data == 'cancel':
             context.user_data.pop('draft', None)
             context.user_data.pop('partial_order', None)
@@ -375,25 +395,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not draft:
                 await query.edit_message_text("❌ Error: Draft not found or expired.")
                 return
-                
-            if draft['type'] == 'order':
-                order_num = save_order(
-                    draft['customer_name'], draft['phone'], draft['address'], 
-                    draft['product_id'], draft['quantity'], draft['unit_price'], 
-                    draft['delivery_fee'], draft['total_price'], draft['delivery_date'], draft['created_by']
-                )
-                draft['order_number'] = order_num
-                await send_order_to_group(context, draft)
-                await query.edit_message_text(f"✅ Order {order_num} saved and sent to group!")
-                
-            elif draft['type'] == 'expense':
-                save_expense(draft['amount'], draft['description'], draft['telegram_file_id'], draft['created_by'])
-                await send_finance_to_group(context, draft, is_income=False)
-                await query.edit_message_text("✅ Expense saved and sent to group!")
-                
-            elif draft['type'] == 'income':
-                save_income(draft['amount'], draft['description'], draft['telegram_file_id'], draft['created_by'])
-                await send_finance_to_group(context, draft, is_income=True)
-                await query.edit_message_text("✅ Income saved and sent to group!")
-                
-            context.user_data.pop('draft', None)
+            
+            await query.edit_message_text("⏳ Processing transaction... Writing to database.")
+            try:
+                if draft['type'] == 'order':
+                    order_num = save_order(
+                        draft['customer_name'], draft['phone'], draft['address'], 
+                        draft['product_id'], draft['quantity'], draft['unit_price'], 
+                        draft['delivery_fee'], draft['total_price'], draft['delivery_date'], draft['created_by']
+                    )
+                    draft['order_number'] = order_num
+                    await send_order_to_group(context, draft)
+                    await query.edit_message_text(f"✅ Order {order_num} saved and sent to group!")
+                    
+                elif draft['type'] == 'expense':
+                    save_expense(draft['amount'], draft['description'], draft['telegram_file_id'], draft['created_by'])
+                    await send_finance_to_group(context, draft, is_income=False)
+                    await query.edit_message_text("✅ Expense saved and sent to group!")
+                    
+                elif draft['type'] == 'income':
+                    save_income(draft['amount'], draft['description'], draft['telegram_file_id'], draft['created_by'])
+                    await send_finance_to_group(context, draft, is_income=True)
+                    await query.edit_message_text("✅ Income saved and sent to group!")
+            except Exception as e:
+                logger.error(f"Transaction failed: {e}", exc_info=True)
+                await query.edit_message_text(f"❌ Database error occurred: {str(e)}")
+            finally:
+                context.user_data.pop('draft', None)
