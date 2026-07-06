@@ -1,5 +1,6 @@
 import os
 import datetime
+from datetime import timezone
 from dotenv import load_dotenv
 from telegram import BotCommand, BotCommandScopeDefault, BotCommandScopeChat, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -61,7 +62,8 @@ def main() -> None:
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     application.add_error_handler(error_handler)
 
-    target_time = datetime.time(hour=23, minute=55, second=0)
+    cam_tz = timezone(datetime.timedelta(hours=7))  # Asia/Manila timezone
+    target_time = datetime.time(hour=23, minute=55, second=0, tzinfo=cam_tz)  # 11:55 PM Asia/Manila time
     application.job_queue.run_daily(send_daily_report_job, time=target_time)
 
     # --- GROUP 0: CALLBACK QUERY ROUTERS ---
