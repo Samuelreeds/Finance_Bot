@@ -11,6 +11,7 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 from handlers.product_admin import product_admin_handler, clear_data_command
 from config import BOT_TOKEN
 from services.database_service import init_db
+from services.audit_service import create_audit_table_if_not_exists
 from utils.logger import logger
 from handlers.template_handler import send_main_menu, handle_input, handle_callback
 from handlers.report import handle_report_callback, send_daily_report_job 
@@ -22,6 +23,7 @@ from handlers.manage_handler import (
     view_expense_command, 
     view_income_command
 )
+from handlers.edit_handler import handle_edit_callback
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Exception handled centrally:", exc_info=context.error)
@@ -57,18 +59,20 @@ async def post_init(application: Application) -> None:
 
 def main() -> None:
     init_db()
-    logger.info("Database verified. Starting application...")
+    create_audit_table_if_not_exists()
+    logger.info("Database and audit schemas verified. Starting application...")
     
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     application.add_error_handler(error_handler)
 
-    cam_tz = timezone(datetime.timedelta(hours=7))  # Asia/Manila timezone
-    target_time = datetime.time(hour=23, minute=55, second=0, tzinfo=cam_tz)  # 11:55 PM Asia/Manila time
+    cam_tz = timezone(datetime.timedelta(hours=7))
+    target_time = datetime.time(hour=23, minute=58, second=0, tzinfo=cam_tz)
     application.job_queue.run_daily(send_daily_report_job, time=target_time)
 
     # --- GROUP 0: CALLBACK QUERY ROUTERS ---
     application.add_handler(CallbackQueryHandler(handle_report_callback, pattern='^report_'), group=0)
     application.add_handler(CallbackQueryHandler(handle_manage_callback, pattern='^manage_'), group=0)
+    application.add_handler(CallbackQueryHandler(handle_edit_callback, pattern='^edit_'), group=0)
     application.add_handler(CallbackQueryHandler(handle_callback, pattern='^selprod_'), group=0)
     application.add_handler(CallbackQueryHandler(handle_callback, pattern='^(pstyle_|poster_)'), group=0)
     application.add_handler(CallbackQueryHandler(handle_callback, pattern='^(confirm|cancel)$'), group=0)

@@ -26,6 +26,7 @@ from services.ai_service import generate_poster, save_poster_history
 
 # Manage (CRUD) Services
 from handlers.manage_handler import send_manage_menu, handle_search_input
+from handlers.edit_handler import handle_edit_input
 
 
 def get_main_menu_keyboard(user_id: int | str) -> ReplyKeyboardMarkup:
@@ -55,11 +56,13 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat.type != 'private':
         return
 
-    # --- 0. CHECK FOR ACTIVE CRUD SEARCH ---
+    # --- 0. CHECK FOR ACTIVE EDIT OR CRUD SEARCH ---
+    if await handle_edit_input(update, context):
+        return
     if update.message.text and await handle_search_input(update, context):
         return
 
-    # --- 1. HANDLE PHOTO UPLOADS (AI POSTER) ---
+    # --- 1. HANDLE PHOTO UPLOADS (AI POSTER & MULTI-IMAGE ALBUMS) ---
     if update.message.photo:
         if context.user_data.get('awaiting_poster_image'):
             # Get the highest resolution photo
@@ -76,6 +79,16 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton(p['name'], callback_data=f"pstyle_{p['id']}")] for p in prompts]
             await update.message.reply_text("Select a Poster Style:", reply_markup=InlineKeyboardMarkup(keyboard))
             return
+            
+        # MULTI-IMAGE ALBUM ACCUMULATOR:
+        # Collects photos if they arrive as part of a media group or sequential uploads
+        media_group_id = update.message.media_group_id
+        if media_group_id:
+            if 'pending_media_group' not in context.user_data:
+                context.user_data['pending_media_group'] = {}
+            if media_group_id not in context.user_data['pending_media_group']:
+                context.user_data['pending_media_group'][media_group_id] = []
+            context.user_data['pending_media_group'][media_group_id].append(update.message.photo[-1].file_id)
 
     # --- 2. HANDLE TEXT INPUT & BUTTONS ---
     text = update.message.text or update.message.caption
@@ -201,11 +214,14 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Amount must be a number.")
             return
             
-        # 🟢 UPGRADE: Collect ALL uploaded image IDs and store them as a comma-separated string
+        # RESOLVE MULTI-IMAGE ATTACHMENTS
         file_id_list = []
-        if update.message.photo:
-            # Grab the largest resolution of each photo sent
-            file_id_list.append(update.message.photo[-1].file_id)
+        if update.message.media_group_id:
+            # Retrieve all photo IDs collected for this album
+            file_id_list = context.user_data.get('pending_media_group', {}).pop(update.message.media_group_id, [])
+        elif update.message.photo:
+            # Single photo uploaded with caption
+            file_id_list = [update.message.photo[-1].file_id]
         
         file_id_string = ",".join(file_id_list) if file_id_list else None
         has_image = f"Yes ({len(file_id_list)} attached)" if file_id_string else "No"
