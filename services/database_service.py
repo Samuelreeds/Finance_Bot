@@ -66,7 +66,7 @@ def init_db() -> None:
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 amount DECIMAL(10, 2) NOT NULL,
                 description TEXT NOT NULL,
-                telegram_file_id VARCHAR(255),
+                telegram_file_id TEXT,
                 created_by VARCHAR(255) NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -76,8 +76,21 @@ def init_db() -> None:
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 amount DECIMAL(10, 2) NOT NULL,
                 description TEXT NOT NULL,
-                telegram_file_id VARCHAR(255),
+                telegram_file_id TEXT,
                 created_by VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        # NEW TABLE: Template-Based Poster Generation
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS poster_templates (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                category VARCHAR(50) DEFAULT 'Food',
+                template_name VARCHAR(100) NOT NULL,
+                description VARCHAR(255),
+                preview_image VARCHAR(255),
+                prompt_template TEXT NOT NULL,
+                status BOOLEAN DEFAULT TRUE,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -97,7 +110,6 @@ def save_order(customer_name: str, phone: str, address: str, product_id: int, qu
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # Generate a temporary unique placeholder to satisfy MySQL/MariaDB Strict Mode (NOT NULL constraint)
         temp_order_num = f"TEMP-{uuid.uuid4().hex[:8]}"
         
         cursor.execute('''
@@ -109,7 +121,6 @@ def save_order(customer_name: str, phone: str, address: str, product_id: int, qu
         inserted_id = cursor.lastrowid
         order_number = f"A{inserted_id:04d}"
         
-        # Update the record with the clean, auto-incremented order number
         cursor.execute('UPDATE orders SET order_number = %s WHERE id = %s', (order_number, inserted_id))
         
         conn.commit()
