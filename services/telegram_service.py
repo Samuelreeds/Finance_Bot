@@ -14,41 +14,42 @@ def _get_safe_thread_id(topic_id: str | None) -> int | None:
         return int(str(topic_id).strip())
     return None
 
-def format_order_message(order_data: dict) -> str:
-    """Formats the order preview dictionary into an HTML string block."""
-    return (
-        "==============================\n"
-        "           NEW ORDER          \n"
-        "==============================\n"
-        f"Order ID       : {order_data.get('order_number', 'PENDING')}\n"
-        f"Customer Name  : {order_data['customer_name']}\n"
-        f"Phone Number   : {order_data['phone']}\n"
-        f"Address        : {order_data['address']}\n"
-        "------------------------------\n"
-        f"Product        : {order_data['product_name']}\n"
-        f"Quantity       : {order_data['quantity']}\n"
-        f"Unit Price     : ${order_data['unit_price']:.2f}\n"
-        f"Delivery Fee   : ${order_data['delivery_fee']:.2f}\n"
-        "------------------------------\n"
-        f"Total Price    : ${order_data['total_price']:.2f}\n"
-        f"Delivery Date  : {order_data['delivery_date']}\n"
-        "=============================="
-    )
+def format_order_message(draft: dict) -> str:
+    order_num = draft.get('order_number', 'A0000')
+    customer = draft.get('customer_name', '')
+    product = draft.get('product_name', '')
+    qty = draft.get('quantity', 0)
+    delivery = draft.get('delivery_fee', 0)
+    total = draft.get('total_price', 0)
+    date = draft.get('delivery_date', '')
+    address = draft.get('address', '')
+    phone = draft.get('phone', '')
 
+    # :g removes the trailing .0 from decimals (e.g., 2.0 becomes 2)
+    return (
+        f"{order_num}/ {customer}\n"
+        f"{product}\n"
+        f"ចំនួន {qty} ឈុត\n"
+        f"Delivery ({delivery:g}$)\n"
+        f"Total = {total:g}$\n"
+        f"ថ្ងៃដឹក : {date}\n"
+        f"ទីតាំង : {address}\n"
+        f"{phone}"
+    )
 async def send_order_to_group(context: ContextTypes.DEFAULT_TYPE, order_data: dict) -> None:
     """Sends the confirmed order to the Telegram group asynchronously."""
-    logger.info("Transmitting order to group chat...")
+    logger.info("Sending order to group chat...")
     if not GROUP_CHAT_ID:
         logger.warning("GROUP_CHAT_ID not configured.")
         return
         
-    message = f"<pre>{format_order_message(order_data)}</pre>"
+    message = format_order_message(order_data)
     try:
         await context.bot.send_message(
             chat_id=GROUP_CHAT_ID,
             message_thread_id=_get_safe_thread_id(ORDER_TOPIC_ID),
             text=message,
-            parse_mode='HTML'
+            parse_mode=None
         )
         logger.info("Order message dispatched successfully.")
     except Exception as e:
@@ -56,7 +57,7 @@ async def send_order_to_group(context: ContextTypes.DEFAULT_TYPE, order_data: di
 
 async def send_finance_to_group(context: ContextTypes.DEFAULT_TYPE, draft: dict, is_income: bool) -> None:
     """Sends the confirmed finance record (supporting single or multiple images as an album) to the Telegram group."""
-    logger.info("Transmitting finance record to group chat...")
+    logger.info("Sending finance record to group chat...")
     if not GROUP_CHAT_ID:
         logger.warning("GROUP_CHAT_ID not configured.")
         return

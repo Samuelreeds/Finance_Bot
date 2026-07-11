@@ -53,6 +53,7 @@ def init_db() -> None:
                 quantity INT NOT NULL,
                 unit_price DECIMAL(10, 2) NOT NULL,
                 delivery_fee DECIMAL(10, 2) NOT NULL,
+                delivery_method VARCHAR(30) DEFAULT 'Phnom Penh',
                 total_price DECIMAL(10, 2) NOT NULL,
                 delivery_date VARCHAR(100) NOT NULL,
                 created_by VARCHAR(255) NOT NULL,
@@ -90,7 +91,7 @@ def init_db() -> None:
         cursor.close()
         conn.close()
 
-def save_order(customer_name: str, phone: str, address: str, product_id: int, quantity: int, unit_price: float, delivery_fee: float, total_price: float, delivery_date: str, created_by: str) -> str:
+def save_order(customer_name: str, phone: str, address: str, product_id: int, quantity: int, unit_price: float, delivery_fee: float, total_price: float, delivery_date: str, created_by: str, delivery_method: str = "Phnom Penh") -> str:
     """Saves a new order and returns the generated order number safely."""
     logger.info("Saving new order to database...")
     conn = get_connection()
@@ -101,12 +102,12 @@ def save_order(customer_name: str, phone: str, address: str, product_id: int, qu
         
         cursor.execute('''
             INSERT INTO orders 
-            (order_number, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, total_price, delivery_date, created_by) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (temp_order_num, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, total_price, delivery_date, created_by))
+            (order_number, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, delivery_method, total_price, delivery_date, created_by) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (temp_order_num, customer_name, phone, address, product_id, quantity, unit_price, delivery_fee, delivery_method, total_price, delivery_date, created_by))
         
         inserted_id = cursor.lastrowid
-        order_number = f"#{inserted_id:04d}"
+        order_number = f"A{inserted_id:04d}"
         
         # Update the record with the clean, auto-incremented order number
         cursor.execute('UPDATE orders SET order_number = %s WHERE id = %s', (order_number, inserted_id))

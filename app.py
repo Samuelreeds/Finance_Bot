@@ -66,14 +66,14 @@ def main() -> None:
     target_time = datetime.time(hour=23, minute=55, second=0, tzinfo=cam_tz)  # 11:55 PM Asia/Manila time
     application.job_queue.run_daily(send_daily_report_job, time=target_time)
 
-    # --- GROUP 0: CALLBACK QUERY ROUTERS ---
+# --- GROUP 0: CALLBACK QUERY ROUTERS ---
     application.add_handler(CallbackQueryHandler(handle_report_callback, pattern='^report_'), group=0)
     application.add_handler(CallbackQueryHandler(handle_manage_callback, pattern='^manage_'), group=0)
     application.add_handler(CallbackQueryHandler(handle_callback, pattern='^selprod_'), group=0)
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern='^delopt_'), group=0) # <-- ADD THIS LINE
     application.add_handler(CallbackQueryHandler(handle_callback, pattern='^(pstyle_|poster_)'), group=0)
     application.add_handler(CallbackQueryHandler(handle_callback, pattern='^(confirm|cancel)$'), group=0)
     application.add_handler(CallbackQueryHandler(catch_all_callbacks), group=0)
-
     # --- GROUP 1: COMMANDS & CONVERSATIONS ---
     application.add_handler(CommandHandler("start", send_main_menu), group=1)
     application.add_handler(product_admin_handler, group=1) 

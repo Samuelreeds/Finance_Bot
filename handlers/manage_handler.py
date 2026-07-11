@@ -175,6 +175,7 @@ async def view_order_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"<b>Address:</b> {r['address']}\n"
             f"<b>Product:</b> {r.get('product_name', 'N/A')}\n"
             f"<b>Quantity:</b> {r['quantity']}\n"
+            f"<b>Delivery Method:</b> {r.get('delivery_method', 'Phnom Penh')}\n"
             f"<b>Unit Price:</b> ${float(r['unit_price']):.2f}\n"
             f"<b>Delivery Fee:</b> ${float(r['delivery_fee']):.2f}\n"
             f"<b>Total:</b> ${float(r['total_price']):.2f}\n"
